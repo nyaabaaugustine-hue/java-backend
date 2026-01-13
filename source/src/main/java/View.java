@@ -9,10 +9,13 @@ import com.pengrad.telegrambot.model.request.ChatAction;
 import com.pengrad.telegrambot.model.request.Keyboard;
 import com.pengrad.telegrambot.model.request.KeyboardButton;
 import com.pengrad.telegrambot.model.request.ReplyKeyboardMarkup;
+import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup;
+import com.pengrad.telegrambot.model.request.InlineKeyboardButton;
 import com.pengrad.telegrambot.request.GetUpdates;
 import com.pengrad.telegrambot.request.DeleteWebhook;
 import com.pengrad.telegrambot.request.SendChatAction;
 import com.pengrad.telegrambot.request.SendMessage;
+import com.pengrad.telegrambot.request.SendLocation;
 import com.pengrad.telegrambot.response.BaseResponse;
 import com.pengrad.telegrambot.response.GetUpdatesResponse;
 import com.pengrad.telegrambot.response.SendResponse;
@@ -84,27 +87,35 @@ public class View implements Observer {
 	 */
 	public View(RideModel model){
 		this.rideModel = model; 
-		String token = System.getenv("TELEGRAM_BOT_TOKEN");
-		if (token == null || token.length() == 0) {
-			try {
-				java.io.File f1 = new java.io.File(".env");
-				java.io.File f2 = new java.io.File("driber/source/.env");
-				java.io.File f3 = new java.io.File("source/.env");
-				java.io.File target = null;
-				if (f1.exists()) target = f1;
-				else if (f2.exists()) target = f2;
-				else if (f3.exists()) target = f3;
-				if (target != null) {
-					java.util.List<String> lines = java.nio.file.Files.readAllLines(target.toPath(), java.nio.charset.StandardCharsets.UTF_8);
-					for (String line : lines) {
-						String l = line.trim();
-						if (l.startsWith("TELEGRAM_BOT_TOKEN=")) {
-							String[] parts = l.split("=", 2);
-							if (parts.length == 2) token = parts[1].trim();
-						}
+		String token = null;
+		String tokenSource = null;
+		try {
+			java.io.File f1 = new java.io.File(".env");
+			java.io.File f2 = new java.io.File("driber/source/.env");
+			java.io.File f3 = new java.io.File("source/.env");
+			java.io.File target = null;
+			if (f1.exists()) target = f1;
+			else if (f2.exists()) target = f2;
+			else if (f3.exists()) target = f3;
+			if (target != null) {
+				java.util.List<String> lines = java.nio.file.Files.readAllLines(target.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+				for (String line : lines) {
+					String l = line.trim();
+					if (l.startsWith("TELEGRAM_BOT_TOKEN=")) {
+						String[] parts = l.split("=", 2);
+						if (parts.length == 2) token = parts[1].trim();
 					}
 				}
-			} catch (Exception e) {
+				if (token != null && token.length() > 0) {
+					tokenSource = "file:" + target.getPath();
+				}
+			}
+		} catch (Exception e) {
+		}
+		if (token == null || token.length() == 0) {
+			token = System.getenv("TELEGRAM_BOT_TOKEN");
+			if (token != null && token.length() > 0) {
+				tokenSource = "env";
 			}
 		}
 		if (token != null && token.length() > 0) {
@@ -135,6 +146,7 @@ public class View implements Observer {
 				}
 			} catch (Exception e) {
 			}
+			System.out.println("Using TELEGRAM_BOT_TOKEN from " + (tokenSource != null ? tokenSource : "unknown"));
 			this.bot = new TelegramBot.Builder(token).okHttpClient(b.build()).build();
 		} else {
 			this.bot = null;
@@ -144,13 +156,25 @@ public class View implements Observer {
 			try { this.bot.execute(new DeleteWebhook()); } catch (Exception e) {}
 			try {
 				com.pengrad.telegrambot.request.GetMe getMe = new com.pengrad.telegrambot.request.GetMe();
-				BaseResponse ok = this.bot.execute(getMe);
-				if (ok == null || !ok.isOk()) {
+				com.pengrad.telegrambot.response.GetMeResponse meResp = this.bot.execute(getMe);
+				if (meResp == null || !meResp.isOk()) {
 					System.out.println("Cannot reach Telegram API. Check network/proxy settings.");
+				} else {
+					com.pengrad.telegrambot.model.User me = meResp.user();
+					System.out.println("Bot online: id=" + (me != null ? me.id() : "unknown") + " username=" + (me != null ? me.username() : "unknown"));
 				}
 			} catch (Exception e) {
 				System.out.println("Startup health check failed: " + e.getMessage());
 			}
+			try {
+				GetUpdatesResponse initResp = this.bot.execute(new GetUpdates().limit(1).timeout(0));
+				List<Update> init = initResp != null ? initResp.updates() : null;
+				if (init != null && !init.isEmpty()) {
+					int lastId = init.get(init.size()-1).updateId();
+					this.queuesIndex = lastId + 1;
+					System.out.println("Initialized update offset to " + this.queuesIndex);
+				}
+			} catch (Exception e) {}
 			if (this.dispatchChatId != null) {
 				try { bot.execute(new SendMessage(this.dispatchChatId, "Bot online and ready.")); } catch (Exception e) {}
 			}
@@ -204,12 +228,33 @@ public class View implements Observer {
 			//Queue of messages
 			List<Update> updates = updatesResponse != null ? updatesResponse.updates() : null;
 			if (updates == null) {
+				System.out.println("Poll tick: no updates");
 				try { Thread.sleep(1000); } catch (InterruptedException e) {}
 				continue;
 			}
+			System.out.println("Updates received: " + updates.size());
 			backoffMs = 5000;
+			// advance offset to the last update id to avoid re-reading same updates
+			try {
+				if (!updates.isEmpty()) {
+					int lastId = updates.get(updates.size()-1).updateId();
+					if (lastId + 1 > queuesIndex) {
+						queuesIndex = lastId + 1;
+					}
+				}
+			} catch (Exception e) {}
 			
 			for (Update update : updates) {
+				if (update.message() != null && update.message().text() != null) {
+					System.out.println("Text update: chat " + update.message().chat().id() + " text=" + update.message().text());
+				} else {
+					System.out.println("Non-text update received: id=" + update.updateId());
+				}
+				// always advance offset to avoid re-fetching the same non-message updates
+				int nextOffset = update.updateId() + 1;
+				if (nextOffset > queuesIndex) {
+					queuesIndex = nextOffset;
+				}
 				if (update.message() == null) {
 					continue;
 				}
@@ -251,6 +296,7 @@ public class View implements Observer {
 		                }
 			).oneTimeKeyboard(true);                
 			messageText = "Hello " + update.message().from().firstName() + ", ready to ride?";
+			System.out.println("Processing /start for chat " + update.message().chat().id());
 			this.sendMessageWithKeyBoard(
 				update.message().chat().id(), 
 				messageText, 
@@ -400,6 +446,7 @@ public class View implements Observer {
 						+ "Pickup: " + this.locationStart.latitude() + ", " + this.locationStart.longitude() + "\n"
 						+ "Dropoff: " + this.locationFinish.latitude() + ", " + this.locationFinish.longitude();
 					notifyGroup(groupMsg);
+					notifyGroupPickup(this.locationStart.latitude(), this.locationStart.longitude());
 					this.onTheRun = true;
 				}
 			}
@@ -459,6 +506,22 @@ public class View implements Observer {
 				}
 			} catch (Exception e) {
 				System.out.println("Failed to notify group: " + e.getMessage());
+			}
+		}
+	}
+	
+	public void notifyGroupPickup(double lat, double lon) {
+		if (bot != null && dispatchChatId != null) {
+			try {
+				String mapsUrl = "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lon;
+				InlineKeyboardButton mapBtn = new InlineKeyboardButton("📍 Map").url(mapsUrl);
+				InlineKeyboardMarkup markup = new InlineKeyboardMarkup(new InlineKeyboardButton[]{mapBtn});
+				SendMessage msg = new SendMessage(dispatchChatId, "Pickup location:");
+				msg.replyMarkup(markup);
+				bot.execute(msg);
+				bot.execute(new SendLocation(dispatchChatId, (float) lat, (float) lon));
+			} catch (Exception e) {
+				System.out.println("Failed to send pickup map: " + e.getMessage());
 			}
 		}
 	}
