@@ -1,39 +1,29 @@
-## DRIBER
-<img width="150" src="logo.png" />
+# CyberCando Transport Bot
 
-Bot to request a Uber ride through Telegram.
-This bot is just a simulation of a Uber request. No real drivers will be requested, but you may see the ride simulation through Uber Trip Simulator website (only available for the user who requested the ride).
+**The Future of Automated Transport Dispatch**
 
-### Developed by:
-#### Gustavo Santos Thiago
-#### Heitor Miranda Moreira
+This project is a modern transport dispatch bot for Telegram, designed to handle ride requests for Taxis 🚕, Motorbikes 🏍️, Tricycles 🛺, and Delivery 🚚.
 
-### How to request a ride?
-1. First of all, you have to start the conversation with the bot
-2. Then you have to choose to request a ride
-3. After that, you will be asked to send your pickup and dropoff locations. You must send them using Telegram Location attachment
-4. The bot will then search for drivers nearby and show the estimated fares for each available product (uberX, uberSELECT, uberPOOL etc.)
-5. There will be a button for each one of the available products. You may choose the one you want to request
-6. Uber will be requested after you choose the product
-7. You can then check the status of the trip with Uber Trip Simulator
+## Features
+- **Multi-Vehicle Support**: Request different types of transport.
+- **Automated Dispatch**: Simulates driver matching and dispatching.
+- **Telegram Interface**: Easy-to-use chat interface for users.
+- **Mock Pricing Engine**: Simulates fare calculation without external dependencies.
 
-### Interaction
+## Architecture
+- **MVC Pattern**: Clear separation of concerns.
+- **Java**: Built with robustness in mind.
+- **Extensible**: Ready to connect with real databases and payment gateways.
 
-#### Starting the conversation with the bot:
-<img width="300" align="top" src="screen1.jpg"/>
+## Getting Started
+1. Clone the repository.
+2. Set up your Telegram Bot Token in `.env`.
+3. Run the application.
 
-#### Requesting a ride:
-<img width="300" align="top" src="screen2.jpg"/>
+## Roadmap
+- [x] Core Bot Logic
+- [ ] Database Integration (SQLite/PostgreSQL)
+- [ ] Admin Dashboard
+- [ ] Real-time Driver Tracking
 
-#### Choosing the product:
-<img width="300" align="top" src="screen3.jpg"/>
-
-#### Checking the current status of your ride:
-<img width="300" align="top" src="status.jpg"/>
-
-####  Checking the progress of the ride with Uber Trip Simulator:
-<img width="900" align="top" src="tripsimulator.png"/>
-
-### Class Diagram
-<img width="900" src="driber.png" />
-
+Developed for CyberCando.

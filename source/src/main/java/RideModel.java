@@ -1,53 +1,39 @@
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
-import retrofit2.Response;
-
 import com.pengrad.telegrambot.model.Location;
-import com.uber.sdk.core.auth.Scope;
-import com.uber.sdk.rides.client.model.Product;
-import com.uber.sdk.rides.client.model.ProductsResponse;
-import com.uber.sdk.rides.client.model.Ride;
-import com.uber.sdk.rides.client.model.RideEstimate;
-import com.uber.sdk.rides.client.model.RideRequestParameters;
-import com.uber.sdk.rides.client.services.RidesService;
-
 
 /**
  * RideModel.java
  * 
- * Responsável por prover as informações da corrida
- *
+ * Responsible for providing ride information
+ * 
  * @author gusanthiago
  * @author hmmoreira
  */
 public class RideModel implements Subject {
 
 	private static RideModel instance;
-	private static RidesService ridesService;
+	private static TransportService transportService;
 	private List<Observer> observers = new LinkedList<Observer>();
-	
-	
+
 	public static RideModel getInstance() {
 		if (instance == null) {
 			instance = new RideModel();
 		}
-		try {
-			ridesService = RidesConfigUber.getInstance();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
+		// Initialize Mock Service instead of Uber SDK
+		transportService = new MockTransportService();
 		return instance;
 	}
 	
 	public void registerObserver(Observer observer) {
 		observers.add(observer);
+	}
+	
+	public void removeObserver(Observer observer) {
+		observers.remove(observer);
 	}
 	
 	public void notifyObservers(long chatId, String data){
@@ -62,34 +48,24 @@ public class RideModel implements Subject {
 	 * @param productFare
 	 * @return
 	 */
-	public Ride requestRide(ProductFare productFare) {
+	public TransportRide requestRide(ProductFare productFare) {
 		
-		Ride ride = null;
+		TransportRide ride = null;
 		try {
-			
-			RideRequestParameters ridesRequestParameters = new RideRequestParameters.Builder()
-						.setPickupCoordinates(productFare.getLocationStart().latitude(), productFare.getLocationStart().longitude())
-				       .setProductId(productFare.getProduct().getProductId())
-				       .setFareId(productFare.getRideEstimate().getFare().getFareId())
-				       .setDropoffCoordinates(productFare.getLocationFinish().latitude(), productFare.getLocationStart().longitude())
-				       .build();
-			
-			ride = ridesService.requestRide(ridesRequestParameters).execute().body();
-			System.out.println("Ride request " + ride.getStatus() + " - " + ride.getVehicle());
+			ride = transportService.requestRide(productFare.getRideEstimate());
+			System.out.println("Ride request " + ride.getStatus());
 			return ride;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 		return ride;
 		
 	}
-	
-	
-	public Ride selectRide(Ride ride) {
+
+	public TransportRide selectRide(TransportRide ride) {
 		
 		try {
-			return ridesService.getRideDetails(ride.getRideId()).execute().body();
+			return transportService.getRideStatus(ride.getRideId());
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -109,15 +85,13 @@ public class RideModel implements Subject {
 		List<ProductFare> productsFares = new ArrayList<ProductFare>();
 		try {
 			
-			Response<ProductsResponse> response = ridesService.getProducts(
-				locationStart.latitude(), 
-				locationStart.longitude()
-			).execute();
+            GeoLocation start = new GeoLocation(locationStart.latitude(), locationStart.longitude());
+            GeoLocation end = new GeoLocation(locationFinish.latitude(), locationFinish.longitude());
 
-			List<Product> products = response.body().getProducts();
+			List<TransportProduct> products = transportService.getProducts(start);
 			
-			for (Product product : products) {
-				ProductFare productFare = this.buildProductFare(product, locationStart, locationFinish);
+			for (TransportProduct product : products) {
+				ProductFare productFare = this.buildProductFare(product, start, end, locationStart, locationFinish);
 				productsFares.add(productFare);
 				System.out.println(
 						productFare.getProduct().getDisplayName() +
@@ -126,39 +100,34 @@ public class RideModel implements Subject {
 			}
 			
 			
-		} catch (IOException e) {
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 		return productsFares;
 	}
-	
+
 	/**
 	 * Build ProductFare
 	 * @param product
+	 * @param start
+     * @param end
 	 * @param locationStart
 	 * @param locationFinish
 	 * @return ProductFare
 	 */
-	private ProductFare buildProductFare(Product product, Location locationStart, Location locationFinish) {
+	private ProductFare buildProductFare(TransportProduct product, GeoLocation start, GeoLocation end, Location locationStart, Location locationFinish) {
 		ProductFare productFare = new ProductFare();
-		RideRequestParameters rideRequestParameters = new RideRequestParameters.Builder()
-				   .setPickupCoordinates(locationStart.latitude(), locationStart.longitude())
-			       .setProductId(product.getProductId())
-			       .setDropoffCoordinates(locationFinish.latitude(), locationFinish.longitude())
-			       .build();				
 		try {
-			RideEstimate rideEstimate = ridesService.estimateRide(rideRequestParameters).execute().body();
+			TransportEstimate rideEstimate = transportService.estimateRide(product, start, end);
 			productFare.setLocationStart(locationStart);
 			productFare.setLocationFinish(locationFinish);
 			productFare.setProduct(product);
 			productFare.setRideEstimate(rideEstimate);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 
 		return productFare;
 	}
 
-	
 }

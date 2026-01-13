@@ -2,7 +2,7 @@
 /**
  * Subject.java
  * 
- * Responsável por fornecer interface para as models
+ * Responsible for providing interface for the models
  * 
  * @author gusanthiago
  * @author hmmoreira

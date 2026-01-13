@@ -1,9 +1,8 @@
 
-import java.util.ArrayList;
 import java.util.List;
 
 import com.pengrad.telegrambot.TelegramBot;
-import com.pengrad.telegrambot.TelegramBotAdapter;
+// import removed in newer versions
 import com.pengrad.telegrambot.model.Location;
 import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.model.request.ChatAction;
@@ -11,25 +10,37 @@ import com.pengrad.telegrambot.model.request.Keyboard;
 import com.pengrad.telegrambot.model.request.KeyboardButton;
 import com.pengrad.telegrambot.model.request.ReplyKeyboardMarkup;
 import com.pengrad.telegrambot.request.GetUpdates;
+import com.pengrad.telegrambot.request.DeleteWebhook;
 import com.pengrad.telegrambot.request.SendChatAction;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.response.BaseResponse;
 import com.pengrad.telegrambot.response.GetUpdatesResponse;
 import com.pengrad.telegrambot.response.SendResponse;
-import com.uber.sdk.rides.client.model.Ride;
+import okhttp3.OkHttpClient;
+import okhttp3.Authenticator;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.Route;
+import okhttp3.Credentials;
+import java.net.Proxy;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.util.concurrent.TimeUnit;
 
 
 /**
  * View.java
  * 
- * Criado por monitorar interação do usuário
+ * Created to monitor user interaction
  *
  * @author gusanthiago
  * @author hmmoreira
  */
 public class View implements Observer {
 
-	TelegramBot bot = TelegramBotAdapter.build("383542989:AAGgI48Fh4esc9mhKmMiJrCY7rYnpKkQxlI");	
+	TelegramBot bot;	
+	Long dispatchChatId = null;
+	java.io.File dispatchFile = new java.io.File("dispatch_chat_id.txt");
 	
 	/**
 	 * Request and response for Telegram API 
@@ -60,7 +71,7 @@ public class View implements Observer {
 	boolean hasStartLocation = false;
 	boolean onTheRun = false;
 	
-	Ride myRide = null;
+	TransportRide myRide = null;
 
 	Location locationStart = null;
 	Location locationFinish = null;
@@ -73,6 +84,106 @@ public class View implements Observer {
 	 */
 	public View(RideModel model){
 		this.rideModel = model; 
+		String token = System.getenv("TELEGRAM_BOT_TOKEN");
+		if (token == null || token.length() == 0) {
+			try {
+				java.io.File f1 = new java.io.File(".env");
+				java.io.File f2 = new java.io.File("driber/source/.env");
+				java.io.File f3 = new java.io.File("source/.env");
+				java.io.File target = null;
+				if (f1.exists()) target = f1;
+				else if (f2.exists()) target = f2;
+				else if (f3.exists()) target = f3;
+				if (target != null) {
+					java.util.List<String> lines = java.nio.file.Files.readAllLines(target.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+					for (String line : lines) {
+						String l = line.trim();
+						if (l.startsWith("TELEGRAM_BOT_TOKEN=")) {
+							String[] parts = l.split("=", 2);
+							if (parts.length == 2) token = parts[1].trim();
+						}
+					}
+				}
+			} catch (Exception e) {
+			}
+		}
+		if (token != null && token.length() > 0) {
+			OkHttpClient.Builder b = new OkHttpClient.Builder()
+				.connectTimeout(30, TimeUnit.SECONDS)
+				.readTimeout(60, TimeUnit.SECONDS)
+				.writeTimeout(30, TimeUnit.SECONDS);
+			try {
+				String proxyUrl = System.getenv("HTTPS_PROXY");
+				if (proxyUrl == null || proxyUrl.length() == 0) proxyUrl = System.getenv("HTTP_PROXY");
+				if (proxyUrl != null && proxyUrl.length() > 0) {
+					URI u = new URI(proxyUrl);
+					String host = u.getHost();
+					int port = u.getPort() > 0 ? u.getPort() : ("https".equalsIgnoreCase(u.getScheme()) ? 443 : 80);
+					if (host != null) {
+						Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress(host, port));
+						b.proxy(proxy);
+						if (u.getUserInfo() != null && u.getUserInfo().contains(":")) {
+							final String[] up = u.getUserInfo().split(":", 2);
+							final String cred = Credentials.basic(up[0], up[1]);
+							b.proxyAuthenticator(new Authenticator() {
+								public Request authenticate(Route route, Response response) {
+									return response.request().newBuilder().header("Proxy-Authorization", cred).build();
+								}
+							});
+						}
+					}
+				}
+			} catch (Exception e) {
+			}
+			this.bot = new TelegramBot.Builder(token).okHttpClient(b.build()).build();
+		} else {
+			this.bot = null;
+			System.out.println("Missing TELEGRAM_BOT_TOKEN. Bot will not start.");
+		}
+		if (this.bot != null) {
+			try { this.bot.execute(new DeleteWebhook()); } catch (Exception e) {}
+			try {
+				com.pengrad.telegrambot.request.GetMe getMe = new com.pengrad.telegrambot.request.GetMe();
+				BaseResponse ok = this.bot.execute(getMe);
+				if (ok == null || !ok.isOk()) {
+					System.out.println("Cannot reach Telegram API. Check network/proxy settings.");
+				}
+			} catch (Exception e) {
+				System.out.println("Startup health check failed: " + e.getMessage());
+			}
+			if (this.dispatchChatId != null) {
+				try { bot.execute(new SendMessage(this.dispatchChatId, "Bot online and ready.")); } catch (Exception e) {}
+			}
+		}
+		try {
+			String groupIdStr = System.getenv("DISPATCH_CHAT_ID");
+			if (groupIdStr == null || groupIdStr.length() == 0) {
+				java.io.File f1 = new java.io.File(".env");
+				if (f1.exists()) {
+					java.util.List<String> lines = java.nio.file.Files.readAllLines(f1.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+					for (String line : lines) {
+						String l = line.trim();
+						if (l.startsWith("DISPATCH_CHAT_ID=")) {
+							String[] parts = l.split("=", 2);
+							if (parts.length == 2) groupIdStr = parts[1].trim();
+						}
+					}
+				}
+			}
+			if (groupIdStr != null && groupIdStr.length() > 0) {
+				this.dispatchChatId = Long.parseLong(groupIdStr);
+			}
+		} catch (Exception e) {
+			System.out.println("Invalid DISPATCH_CHAT_ID: "+e.getMessage());
+		}
+		if (this.dispatchChatId == null) {
+			try {
+				if (dispatchFile.exists()) {
+					String s = new String(java.nio.file.Files.readAllBytes(dispatchFile.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim();
+					if (s.length() > 0) this.dispatchChatId = Long.parseLong(s);
+				}
+			} catch (Exception e) {}
+		}
 	}
 
 	public void setController(Controller controller){ //Strategy Pattern
@@ -81,23 +192,45 @@ public class View implements Observer {
 	
 	public void receiveUsersMessages() {
 
+		if (bot == null) {
+			System.out.println("Bot not started. Check TELEGRAM_BOT_TOKEN (env or .env).");
+			return;
+		}
+		long backoffMs = 5000;
 		while (true){
-
-			updatesResponse =  bot.execute(new GetUpdates().limit(100).offset(queuesIndex));
+			try {
+			updatesResponse =  bot.execute(new GetUpdates().limit(100).timeout(30).offset(queuesIndex));
 			
 			//Queue of messages
-			List<Update> updates = updatesResponse.updates();
+			List<Update> updates = updatesResponse != null ? updatesResponse.updates() : null;
+			if (updates == null) {
+				try { Thread.sleep(1000); } catch (InterruptedException e) {}
+				continue;
+			}
+			backoffMs = 5000;
 			
 			for (Update update : updates) {
-				System.out.println(update.message().text());
+				if (update.message() == null) {
+					continue;
+				}
+				if (update.message().text() != null) {
+					ActivityLog.getInstance().addEvent(String.valueOf(update.message().chat().id()), "text", update.message().text());
+				} else if (update.message().location() != null) {
+					ActivityLog.getInstance().addEvent(String.valueOf(update.message().chat().id()), "location", update.message().location().latitude()+" , "+update.message().location().longitude());
+				}
 				//updating queue's index
 				queuesIndex = update.updateId()+1;	
 				this.buildInteraction(update);
 				
 			}
-	
+
+			} catch (Exception ex) {
+				System.out.println("Polling error: " + ex.getMessage());
+				try { Thread.sleep(backoffMs); } catch (InterruptedException ie) {}
+				backoffMs = Math.min(backoffMs * 2, 60000);
+				continue;
+			}
 		}
-		
 		
 	}
 	
@@ -105,33 +238,96 @@ public class View implements Observer {
 		
 		String messageText = null;
 		
+		if (update.message() == null) {
+			return;
+		}
+		
+		if (update.message().text() != null && update.message().text().toUpperCase().equals("/START")) {
+			this.cleanStates();
+			Keyboard keyboard = new ReplyKeyboardMarkup(
+			        new KeyboardButton[] {
+			                new KeyboardButton("Yes, let's go"),
+			                new KeyboardButton("No")
+		                }
+			).oneTimeKeyboard(true);                
+			messageText = "Hello " + update.message().from().firstName() + ", ready to ride?";
+			this.sendMessageWithKeyBoard(
+				update.message().chat().id(), 
+				messageText, 
+				keyboard
+			);
+			return;
+		}
+		if (update.message().text() != null && update.message().text().toUpperCase().startsWith("/DIAG")) {
+			StringBuilder sb = new StringBuilder();
+			sb.append("Diagnostics\n");
+			sb.append("Bot: ");
+			try {
+				BaseResponse ok = this.bot.execute(new com.pengrad.telegrambot.request.GetMe());
+				sb.append(ok != null && ok.isOk() ? "OK" : "FAIL");
+			} catch (Exception e) {
+				sb.append("ERROR: ").append(e.getMessage());
+			}
+			sb.append("\nDispatch ID: ").append(this.dispatchChatId != null ? String.valueOf(this.dispatchChatId) : "NOT SET");
+			this.sendMessage(update.message().chat().id(), sb.toString());
+			if (this.dispatchChatId != null) {
+				try {
+					this.notifyGroup("Diagnostic ping to drivers group");
+					this.sendMessage(update.message().chat().id(), "Dispatch ping sent.");
+				} catch (Exception e) {
+					this.sendMessage(update.message().chat().id(), "Dispatch ping failed: "+e.getMessage());
+				}
+			}
+			return;
+		}
+		if (update.message().text() != null && update.message().text().toUpperCase().startsWith("/SETDISPATCH")) {
+			this.dispatchChatId = update.message().chat().id();
+			try { java.nio.file.Files.write(dispatchFile.toPath(), String.valueOf(this.dispatchChatId).getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception e) {}
+			this.sendMessage(update.message().chat().id(), "Dispatch group registered.");
+			return;
+		}
+		if (update.message().text() != null && update.message().text().toUpperCase().startsWith("/PINGDISPATCH")) {
+			if (this.dispatchChatId == null) {
+				this.sendMessage(update.message().chat().id(), "Dispatch not set. Use /setdispatch in the drivers group or set DISPATCH_CHAT_ID.");
+			} else {
+				notifyGroup("Dispatch ping from chat " + update.message().chat().id());
+				this.sendMessage(update.message().chat().id(), "Ping sent to drivers group.");
+			}
+			return;
+		}
+		
 		// is start conversation
-		if (update.message().text() != null && update.message().text().toUpperCase().equals("CANCELAR")) {
+		if (update.message().text() != null && (update.message().text().toUpperCase().equals("CANCEL") || update.message().text().toUpperCase().equals("/CANCEL"))) {
 			this.cleanStates();
 		} else if (this.isRequestRide == false && update.message().text() != null) {
 			setController(new RideController(rideModel, this));
 			this.isRequestRide = false;
 			if (update.message().text().equals("TestApi")) {
-				this.sendMessage(update.message().chat().id(), "Teste api");
+				this.sendMessage(update.message().chat().id(), "API test");
 				
 			// todo upgrade text message initilize conversations
-			} else if (update.message().text().toUpperCase().equals("OLA") || update.message().text().toUpperCase().equals("OLÁ")){ 	
+			} else if (
+				update.message().text().toUpperCase().equals("HELLO") || 
+				update.message().text().toUpperCase().equals("HI") ||
+				update.message().text().toUpperCase().startsWith("/START") ||
+				update.message().text().toUpperCase().equals("START")
+			){ 	
 				
 				Keyboard keyboard = new ReplyKeyboardMarkup(
 				        new KeyboardButton[] {
-				                new KeyboardButton("Sim vamos lá"),
-				                new KeyboardButton("Não")
+				                new KeyboardButton("Yes, let's go"),
+				                new KeyboardButton("No")
 			                }
 				).oneTimeKeyboard(true);                
-				messageText = "Olá " + update.message().from().firstName() + ", vamos viajar ?";
+				messageText = "Hello " + update.message().from().firstName() + ", ready to ride?";
 				this.sendMessageWithKeyBoard(
 					update.message().chat().id(), 
 					messageText, 
 					keyboard
 				);
 				
-			} else if (update.message().text().equals("Sim vamos lá")) {
-				this.sendMessage(update.message().chat().id(), "Envie para mim sua localização de partida");
+			} else if (update.message().text().equals("Yes, let's go")) {
+				this.sendMessage(update.message().chat().id(), "Please send your pickup location");
 				this.isRequestRide = true;
 			}
 			
@@ -143,18 +339,18 @@ public class View implements Observer {
 				if (this.hasStartLocation == false) {
 			
 					this.locationStart = update.message().location();
-					messageText = "Legal, agora precisamos do seu destino";
+					messageText = "Great! Now please send your destination";
 					this.sendMessage(update.message().chat().id(), messageText);	
 					this.hasStartLocation = true;				
 					
 				} else {
 					this.locationFinish = update.message().location();
-					messageText = "Uau, vamos procurar...";
+					messageText = "Searching nearby options...";
 					this.sendMessage(update.message().chat().id(), messageText);
 					listProductFare = this.controller.findAllProducts(this.locationStart, this.locationFinish);
 					
 					if (listProductFare.isEmpty()) {
-						messageText = "Hmm, é uma penas mas, parece que não temos ubers disponíveis para sua região";
+						messageText = "No transport options available in your area.";
 						this.sendMessage(update.message().chat().id(), messageText);	
 						this.cleanStates();
 					} else {
@@ -179,11 +375,11 @@ public class View implements Observer {
 	
 			} else if (update.message().text() != null) {
 				
-				messageText = "Não entendi, precisamos da sua localização";
+				messageText = "I didn't understand. We need your location";
 				if (this.hasStartLocation == false) {
-					messageText += " de partida";
+					messageText += " to start";
 				} else {
-					messageText += " final";
+					messageText += " for the destination";
 				}
 				this.sendMessage(update.message().chat().id(), messageText);
 			}
@@ -195,17 +391,30 @@ public class View implements Observer {
 			for (ProductFare productFare : listProductFare) {
 				if (update.message().text().equals(productFare.getProduct().getDisplayName())) {
 					this.myRide = this.controller.request(update, productFare);
-					this.sendMessage(update.message().chat().id(), "Estamos processando digite 'status' para visualizar como esta sua viagem !");
+					ActivityLog.getInstance().setCurrentRide(update.message().chat().id(), this.myRide);
+					this.sendMessage(update.message().chat().id(), "Processing. Type 'status' to view your ride status!");
+					String groupMsg = "New ride request\n"
+						+ "Passenger: " + update.message().from().firstName() + "\n"
+						+ "Product: " + productFare.getProduct().getDisplayName() + "\n"
+						+ "Fare: " + productFare.getRideEstimate().getFare().getDisplay() + "\n"
+						+ "Pickup: " + this.locationStart.latitude() + ", " + this.locationStart.longitude() + "\n"
+						+ "Dropoff: " + this.locationFinish.latitude() + ", " + this.locationFinish.longitude();
+					notifyGroup(groupMsg);
 					this.onTheRun = true;
 				}
 			}
 		} else if (this.onTheRun && this.myRide != null) {
 			this.myRide = this.controller.statusForRide(update, this.myRide);
-			messageText = "Status da sua viagem - " + this.myRide.getStatus();
+			messageText = "Your ride status - " + this.myRide.getStatus();
 			this.sendMessage(update.message().chat().id(), messageText);
+			ActivityLog.getInstance().addEvent(String.valueOf(update.message().chat().id()), "status", this.myRide.getStatus());
+			String s = "Ride status update: " + this.myRide.getStatus();
+			if (this.myRide.getProduct() != null) s += " • " + this.myRide.getProduct().getDisplayName();
+			if (this.myRide.getDriverName() != null) s += " • Driver: " + this.myRide.getDriverName();
+			notifyGroup(s);
 			
-			if (this.myRide.getStatus().toString().equals("COMPLETED")) {
-				this.sendMessage(update.message().chat().id(), "Até mais, driber agradece sua companhia");
+			if (this.myRide.getStatus().equalsIgnoreCase("completed")) {
+				this.sendMessage(update.message().chat().id(), "See you soon. Thanks for riding with us.");
 				this.cleanStates();
 			}
 		}
@@ -239,6 +448,19 @@ public class View implements Observer {
 	
 	public void sendTypingMessage(Update update){
 		baseResponse = bot.execute(new SendChatAction(update.message().chat().id(), ChatAction.typing.name()));
+	}
+	
+	public void notifyGroup(String message) {
+		if (bot != null && dispatchChatId != null) {
+			try {
+				BaseResponse r = bot.execute(new SendMessage(dispatchChatId, message));
+				if (r == null || !r.isOk()) {
+					System.out.println("Group notify failed");
+				}
+			} catch (Exception e) {
+				System.out.println("Failed to notify group: " + e.getMessage());
+			}
+		}
 	}
 	
 }

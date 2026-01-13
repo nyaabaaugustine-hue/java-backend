@@ -1,17 +1,12 @@
-import java.io.UnsupportedEncodingException;
 import java.util.List;
 
 import com.pengrad.telegrambot.model.Location;
 import com.pengrad.telegrambot.model.Update;
-import com.uber.sdk.rides.client.model.Product;
-import com.uber.sdk.rides.client.model.Ride;
-import com.uber.sdk.rides.client.model.RideEstimate;
-import com.uber.sdk.rides.client.model.RideRequestParameters;
 
 /**
  * RideController.java
  * 
- * Responsável por controller ações da corrida
+ * Responsible for controlling ride actions
  * 
  * @author gusanthiago
  * @author hmmoreira
@@ -27,12 +22,12 @@ public class RideController implements Controller {
 		this.view = view; //connection Controller -> View
 	}
 	
-	public Ride request(Update update, ProductFare productFare) {
+	public TransportRide request(Update update, ProductFare productFare) {
 		view.sendTypingMessage(update);
 		return rideModel.requestRide(productFare);
 	}
 	
-	public Ride statusForRide(Update update, Ride ride) {
+	public TransportRide statusForRide(Update update, TransportRide ride) {
 		view.sendTypingMessage(update);
 		return rideModel.selectRide(ride);	
 	}

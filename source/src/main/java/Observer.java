@@ -2,7 +2,7 @@
 /**
  * Observer.java
  * 
- * Responsável por fornecer interface para a View
+ * Responsible for providing interface for the View
  *
  *
  * @author gusanthiago

@@ -1,14 +1,11 @@
-import com.pengrad.telegrambot.model.Location;
-import com.uber.sdk.rides.client.model.Product;
-import com.uber.sdk.rides.client.model.Ride;
-import com.uber.sdk.rides.client.model.RideEstimate;
 
+import com.pengrad.telegrambot.model.Location;
 
 public class ProductFare {
 	
-	Product product;
-	RideEstimate rideEstimate;
-	Ride ride;
+	TransportProduct product;
+	TransportEstimate rideEstimate;
+	TransportRide ride;
 	Location locationStart;
 	Location locationFinish;
 	
@@ -24,22 +21,22 @@ public class ProductFare {
 	public void setLocationFinish(Location locationFinish) {
 		this.locationFinish = locationFinish;
 	}
-	public Ride getRide() {
+	public TransportRide getRide() {
 		return ride;
 	}
-	public void setRide(Ride ride) {
+	public void setRide(TransportRide ride) {
 		this.ride = ride;
 	}
-	public Product getProduct() {
+	public TransportProduct getProduct() {
 		return product;
 	}
-	public void setProduct(Product product) {
+	public void setProduct(TransportProduct product) {
 		this.product = product;
 	}
-	public RideEstimate getRideEstimate() {
+	public TransportEstimate getRideEstimate() {
 		return rideEstimate;
 	}
-	public void setRideEstimate(RideEstimate rideEstimate) {
+	public void setRideEstimate(TransportEstimate rideEstimate) {
 		this.rideEstimate = rideEstimate;
 	}
 }
