@@ -1,0 +1,44 @@
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  telegram_id BIGINT UNIQUE,
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  phone VARCHAR(30),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS drivers (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  phone VARCHAR(30),
+  vehicle_plate VARCHAR(20),
+  vehicle_model VARCHAR(80),
+  capacity INT DEFAULT 4,
+  is_online BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rides (
+  id SERIAL PRIMARY KEY,
+  ride_uuid VARCHAR(64) UNIQUE NOT NULL,
+  user_id INT REFERENCES users(id),
+  driver_id INT REFERENCES drivers(id),
+  product_id VARCHAR(32),
+  status VARCHAR(32) NOT NULL,
+  pickup_lat DOUBLE PRECISION,
+  pickup_lng DOUBLE PRECISION,
+  dropoff_lat DOUBLE PRECISION,
+  dropoff_lng DOUBLE PRECISION,
+  fare_value NUMERIC(10,2),
+  currency_code VARCHAR(8),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ride_status_logs (
+  id SERIAL PRIMARY KEY,
+  ride_id INT REFERENCES rides(id),
+  status VARCHAR(32) NOT NULL,
+  note VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

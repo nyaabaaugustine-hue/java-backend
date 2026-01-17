@@ -16,6 +16,7 @@ public class Main {
 		model = RideModel.getInstance();
 		initializeModels(model);
 		boolean enableDashboard = false;
+		boolean onlyDashboard = false;
 		try {
 			String s = System.getenv("RUN_DASHBOARD");
 			if (s == null || s.length() == 0) {
@@ -35,10 +36,32 @@ public class Main {
 			}
 			enableDashboard = "true".equalsIgnoreCase(s);
 		} catch (Exception e) {}
-		if (enableDashboard) {
+		try {
+			String s2 = System.getenv("RUN_ONLY_DASHBOARD");
+			if (s2 == null || s2.length() == 0) {
+				try {
+					java.io.File f1 = new java.io.File(".env");
+					if (f1.exists()) {
+						java.util.List<String> lines = java.nio.file.Files.readAllLines(f1.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+						for (String line : lines) {
+							String l = line.trim();
+							if (l.startsWith("RUN_ONLY_DASHBOARD=")) {
+								String[] parts = l.split("=", 2);
+								if (parts.length == 2) s2 = parts[1].trim();
+							}
+						}
+					}
+				} catch (Exception e2) {}
+			}
+			onlyDashboard = "true".equalsIgnoreCase(s2);
+		} catch (Exception e) {}
+		if (enableDashboard || onlyDashboard) {
 			int port = 8088;
 			try {
-				String p = System.getenv("DASHBOARD_PORT");
+				String p = System.getenv("PORT");
+				if (p == null || p.length() == 0) {
+					p = System.getenv("DASHBOARD_PORT");
+				}
 				if (p == null || p.length() == 0) {
 					try {
 						java.io.File f1 = new java.io.File(".env");
@@ -57,6 +80,9 @@ public class Main {
 				if (p != null && p.length() > 0) port = Integer.parseInt(p);
 			} catch (Exception e) {}
 			try { new DashboardServer(port).start(); } catch (Exception e) { System.out.println("Dashboard error: "+e.getMessage()+" (set DASHBOARD_PORT to a free port)"); }
+			if (onlyDashboard) {
+				return;
+			}
 		} else {
 			System.out.println("Dashboard disabled (set RUN_DASHBOARD=true to enable).");
 		}

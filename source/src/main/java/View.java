@@ -16,6 +16,7 @@ import com.pengrad.telegrambot.request.DeleteWebhook;
 import com.pengrad.telegrambot.request.SendChatAction;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.request.SendLocation;
+import com.pengrad.telegrambot.request.AnswerCallbackQuery;
 import com.pengrad.telegrambot.response.BaseResponse;
 import com.pengrad.telegrambot.response.GetUpdatesResponse;
 import com.pengrad.telegrambot.response.SendResponse;
@@ -78,6 +79,9 @@ public class View implements Observer {
 
 	Location locationStart = null;
 	Location locationFinish = null;
+	String clientPhone = null;
+	boolean hasClientPhone = false;
+	java.util.Set<String> lockedRides = new java.util.HashSet<String>();
 	
 	List<ProductFare> listProductFare;
 	
@@ -245,6 +249,27 @@ public class View implements Observer {
 			} catch (Exception e) {}
 			
 			for (Update update : updates) {
+				if (update.callbackQuery() != null && update.callbackQuery().data() != null) {
+					String data = update.callbackQuery().data();
+					try {
+						if (data.startsWith("ACCEPT:")) {
+							String[] parts = data.split(":", 3);
+							String rideId = parts.length > 1 ? parts[1] : null;
+							String passenger = parts.length > 2 ? parts[2] : null;
+							handleAccept(update, rideId, passenger);
+							try { bot.execute(new AnswerCallbackQuery(update.callbackQuery().id()).text("Accepted")); } catch (Exception e) {}
+						} else if (data.startsWith("DECLINE:")) {
+							try { bot.execute(new AnswerCallbackQuery(update.callbackQuery().id()).text("Declined")); } catch (Exception e) {}
+						}
+					} catch (Exception e) {
+						try { bot.execute(new AnswerCallbackQuery(update.callbackQuery().id()).text("Error")); } catch (Exception ex) {}
+					}
+					int nextOffset = update.updateId() + 1;
+					if (nextOffset > queuesIndex) {
+						queuesIndex = nextOffset;
+					}
+					continue;
+				}
 				if (update.message() != null && update.message().text() != null) {
 					System.out.println("Text update: chat " + update.message().chat().id() + " text=" + update.message().text());
 				} else {
@@ -262,6 +287,10 @@ public class View implements Observer {
 					ActivityLog.getInstance().addEvent(String.valueOf(update.message().chat().id()), "text", update.message().text());
 				} else if (update.message().location() != null) {
 					ActivityLog.getInstance().addEvent(String.valueOf(update.message().chat().id()), "location", update.message().location().latitude()+" , "+update.message().location().longitude());
+				} else if (update.message().contact() != null) {
+					clientPhone = update.message().contact().phoneNumber();
+					hasClientPhone = clientPhone != null && clientPhone.length() > 0;
+					ActivityLog.getInstance().addEvent(String.valueOf(update.message().chat().id()), "phone", hasClientPhone ? clientPhone : "");
 				}
 				//updating queue's index
 				queuesIndex = update.updateId()+1;	
@@ -362,9 +391,10 @@ public class View implements Observer {
 				Keyboard keyboard = new ReplyKeyboardMarkup(
 				        new KeyboardButton[] {
 				                new KeyboardButton("Yes, let's go"),
-				                new KeyboardButton("No")
+				                new KeyboardButton("No"),
+				                new KeyboardButton("Share Phone").requestContact(true)
 			                }
-				).oneTimeKeyboard(true);                
+				).oneTimeKeyboard(false);                
 				messageText = "Hello " + update.message().from().firstName() + ", ready to ride?";
 				this.sendMessageWithKeyBoard(
 					update.message().chat().id(), 
@@ -373,7 +403,12 @@ public class View implements Observer {
 				);
 				
 			} else if (update.message().text().equals("Yes, let's go")) {
-				this.sendMessage(update.message().chat().id(), "Please send your pickup location");
+				Keyboard keyboard = new ReplyKeyboardMarkup(
+				        new KeyboardButton[] {
+				                new KeyboardButton("Share Phone").requestContact(true)
+			                }
+				).oneTimeKeyboard(false);
+				this.sendMessageWithKeyBoard(update.message().chat().id(), "Please send your pickup location", keyboard);
 				this.isRequestRide = true;
 			}
 			
@@ -437,6 +472,8 @@ public class View implements Observer {
 			for (ProductFare productFare : listProductFare) {
 				if (update.message().text().equals(productFare.getProduct().getDisplayName())) {
 					this.myRide = this.controller.request(update, productFare);
+					try { if (this.myRide != null) this.myRide.setFareDisplay(productFare.getRideEstimate().getFare().getDisplay()); } catch (Exception e) {}
+					try { if (this.myRide != null && hasClientPhone) this.myRide.setPassengerPhone(clientPhone); } catch (Exception e) {}
 					ActivityLog.getInstance().setCurrentRide(update.message().chat().id(), this.myRide);
 					this.sendMessage(update.message().chat().id(), "Processing. Type 'status' to view your ride status!");
 					String groupMsg = "New ride request\n"
@@ -444,8 +481,12 @@ public class View implements Observer {
 						+ "Product: " + productFare.getProduct().getDisplayName() + "\n"
 						+ "Fare: " + productFare.getRideEstimate().getFare().getDisplay() + "\n"
 						+ "Pickup: " + this.locationStart.latitude() + ", " + this.locationStart.longitude() + "\n"
-						+ "Dropoff: " + this.locationFinish.latitude() + ", " + this.locationFinish.longitude();
-					notifyGroup(groupMsg);
+						+ "Dropoff: " + this.locationFinish.latitude() + ", " + this.locationFinish.longitude()
+						+ (hasClientPhone ? "\nPhone: " + clientPhone : "");
+					notifyGroupRequest(groupMsg, this.myRide != null ? this.myRide.getRideId() : null, update.message().chat().id(), hasClientPhone ? clientPhone : null);
+					if (hasClientPhone) {
+						notifyGroupCall(clientPhone);
+					}
 					notifyGroupPickup(this.locationStart.latitude(), this.locationStart.longitude());
 					this.onTheRun = true;
 				}
@@ -475,6 +516,8 @@ public class View implements Observer {
 		this.locationFinish = null;
 		this.myRide = null;
 		this.onTheRun = false;
+		this.clientPhone = null;
+		this.hasClientPhone = false;
 	}
 	
 	public void update(long chatId, String data){
@@ -524,6 +567,72 @@ public class View implements Observer {
 				System.out.println("Failed to send pickup map: " + e.getMessage());
 			}
 		}
+	}
+	
+	private String dialUrl(String p) {
+		if (p == null) return null;
+		String s = p.replace(" ", "").replace("-", "").replace("(", "").replace(")", "");
+		return "tel:" + s;
+	}
+	
+	public void notifyGroupRequest(String message, String rideId, long passengerChatId, String phoneOpt) {
+		if (bot != null && dispatchChatId != null) {
+			try {
+				InlineKeyboardButton acceptBtn = new InlineKeyboardButton("✅ Accept").callbackData("ACCEPT:" + (rideId != null ? rideId : "") + ":" + passengerChatId);
+				InlineKeyboardButton declineBtn = new InlineKeyboardButton("❌ Decline").callbackData("DECLINE:" + (rideId != null ? rideId : ""));
+				InlineKeyboardMarkup markup;
+				if (phoneOpt != null && phoneOpt.length() > 0) {
+					InlineKeyboardButton callBtn = new InlineKeyboardButton("📞 Call Client").url(dialUrl(phoneOpt));
+					markup = new InlineKeyboardMarkup(new InlineKeyboardButton[]{acceptBtn, declineBtn}, new InlineKeyboardButton[]{callBtn});
+				} else {
+					markup = new InlineKeyboardMarkup(new InlineKeyboardButton[]{acceptBtn, declineBtn});
+				}
+				SendMessage msg = new SendMessage(dispatchChatId, message);
+				msg.replyMarkup(markup);
+				bot.execute(msg);
+			} catch (Exception e) {
+				System.out.println("Failed to send request with actions: " + e.getMessage());
+			}
+		}
+	}
+	
+	public void notifyGroupCall(String phone) {
+		if (bot != null && dispatchChatId != null && phone != null && phone.length() > 0) {
+			try {
+				String url = dialUrl(phone);
+				InlineKeyboardButton callBtn = new InlineKeyboardButton("📞 Call Client").url(url);
+				InlineKeyboardMarkup markup = new InlineKeyboardMarkup(new InlineKeyboardButton[]{callBtn});
+				SendMessage msg = new SendMessage(dispatchChatId, "Contact:");
+				msg.replyMarkup(markup);
+				bot.execute(msg);
+			} catch (Exception e) {
+			}
+		}
+	}
+	
+	private void handleAccept(Update update, String rideId, String passengerChatStr) {
+		if (rideId == null || rideId.length() == 0) return;
+		if (lockedRides.contains(rideId)) {
+			return;
+		}
+		lockedRides.add(rideId);
+		String driverName = update.callbackQuery().from() != null ? update.callbackQuery().from().firstName() : "Driver";
+		ActivityLog.getInstance().addEvent(String.valueOf(update.callbackQuery().from().id()), "accept", rideId);
+		try {
+			if (this.myRide != null && rideId.equals(this.myRide.getRideId())) {
+				this.myRide.setStatus("accepted");
+				this.myRide.setDriverName(driverName);
+			}
+		} catch (Exception e) {}
+		try {
+			long passengerChatId = passengerChatStr != null && passengerChatStr.length() > 0 ? Long.parseLong(passengerChatStr) : 0L;
+			if (passengerChatId > 0) {
+				this.sendMessage(passengerChatId, "Driver accepted your ride • " + driverName);
+			}
+		} catch (Exception e) {}
+		try {
+			this.notifyGroup("Ride accepted by " + driverName);
+		} catch (Exception e) {}
 	}
 	
 }

@@ -8,6 +8,8 @@ public class TransportRide {
     private String driverPhone;
     private String vehiclePlate;
     private String vehicleModel;
+    private String fareDisplay;
+    private String passengerPhone;
 
     public TransportRide(String rideId, String status, TransportProduct product) {
         this.rideId = rideId;
@@ -28,4 +30,10 @@ public class TransportRide {
     
     public String getVehicleModel() { return vehicleModel; }
     public void setVehicleModel(String vehicleModel) { this.vehicleModel = vehicleModel; }
+    
+    public String getFareDisplay() { return fareDisplay; }
+    public void setFareDisplay(String fareDisplay) { this.fareDisplay = fareDisplay; }
+    
+    public String getPassengerPhone() { return passengerPhone; }
+    public void setPassengerPhone(String passengerPhone) { this.passengerPhone = passengerPhone; }
 }
