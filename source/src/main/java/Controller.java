@@ -4,7 +4,6 @@ import com.pengrad.telegrambot.model.Location;
 import com.pengrad.telegrambot.model.Update;
 
 
-/**
  * Controller.java
  * 
  * Provides interface for Controllers
