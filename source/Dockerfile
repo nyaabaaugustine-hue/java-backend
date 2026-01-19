@@ -1,5 +1,5 @@
 # Use OpenJDK 11 as the base image
-FROM openjdk:11-jre
+FROM openjdk:11-jdk
 
 # Install Gradle
 RUN apt-get update && apt-get install -y curl unzip && rm -rf /var/lib/apt/lists/*
