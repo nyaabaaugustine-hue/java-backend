@@ -86,7 +86,37 @@ public class Main {
 		} else {
 			System.out.println("Dashboard disabled (set RUN_DASHBOARD=true to enable).");
 		}
-		View view = new View(model);
+		// Initialize Telegram Bot
+		String botToken = System.getenv("TELEGRAM_BOT_TOKEN");
+		if (botToken == null || botToken.trim().isEmpty()) {
+			java.io.File envFile = new java.io.File(".env");
+			if (envFile.exists()) {
+				try {
+					java.util.Properties props = new java.util.Properties();
+					props.load(new java.io.FileReader(envFile));
+					botToken = props.getProperty("TELEGRAM_BOT_TOKEN");
+				} catch (Exception e) {}
+			}
+		}
+		if (botToken == null || botToken.trim().isEmpty()) {
+			java.io.File envProdFile = new java.io.File(".env.production");
+			if (envProdFile.exists()) {
+				try {
+					java.util.Properties props = new java.util.Properties();
+					props.load(new java.io.FileReader(envProdFile));
+					botToken = props.getProperty("TELEGRAM_BOT_TOKEN");
+				} catch (Exception e) {}
+			}
+		}
+		
+		if (botToken == null || botToken.trim().isEmpty()) {
+			System.out.println("Error: TELEGRAM_BOT_TOKEN not set. Please set TELEGRAM_BOT_TOKEN environment variable or add to .env file");
+			return;
+		}
+		
+		com.pengrad.telegrambot.TelegramBot bot = new com.pengrad.telegrambot.TelegramBot(botToken);
+		View view = new View(bot);
+		view.setRideModel(model); // Set the model using setter
 		model.registerObserver(view);
 		startAutoStatusUpdater(view);
 		view.receiveUsersMessages();

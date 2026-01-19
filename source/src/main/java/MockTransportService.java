@@ -12,10 +12,10 @@ public class MockTransportService implements TransportService {
     @Override
     public List<TransportProduct> getProducts(GeoLocation location) {
         List<TransportProduct> products = new ArrayList<>();
-        products.add(new TransportProduct("taxi", "Taxi 🚕", "Standard taxi ride", 4));
-        products.add(new TransportProduct("moto", "Moto 🏍️", "Fast motorbike ride", 1));
-        products.add(new TransportProduct("tuk", "Tuk Tuk 🛺", "Tricycle ride", 3));
-        products.add(new TransportProduct("delivery", "Delivery 🚚", "Package delivery", 0));
+        products.add(new TransportProduct("taxi", "Taxi", "Standard taxi ride", 4));
+        products.add(new TransportProduct("moto", "Moto", "Fast motorbike ride", 1));
+        products.add(new TransportProduct("tuk", "Tuk Tuk", "Tricycle ride", 3));
+        products.add(new TransportProduct("delivery", "Delivery", "Package delivery", 0));
         return products;
     }
 
@@ -33,7 +33,7 @@ public class MockTransportService implements TransportService {
         } else {
             basePrice = 5.0; perKm = 2.5;
         }
-        double price = basePrice + (km * perKm);
+        double price = (basePrice + (km * perKm)) * 0.5; // 50% discount
         String priceStr = String.format("GHS %.2f", price);
         TransportFare fare = new TransportFare(UUID.randomUUID().toString(), String.valueOf(price), "GHS", priceStr);
         return new TransportEstimate(product, fare, 5, (int)Math.max(3, km * 3));

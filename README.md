@@ -9,6 +9,7 @@ This project is a modern transport dispatch bot for Telegram, designed to handle
 - **Automated Dispatch**: Simulates driver matching and dispatching.
 - **Telegram Interface**: Easy-to-use chat interface for users.
 - **Mock Pricing Engine**: Simulates fare calculation without external dependencies.
+- **Real-time Driver Tracking**: Track driver locations with live map visualization.
 
 ## Architecture
 - **MVC Pattern**: Clear separation of concerns.
@@ -23,7 +24,15 @@ This project is a modern transport dispatch bot for Telegram, designed to handle
 ## Roadmap
 - [x] Core Bot Logic
 - [ ] Database Integration (SQLite/PostgreSQL)
-- [ ] Admin Dashboard
-- [ ] Real-time Driver Tracking
+- [x] Admin Dashboard (with real-time driver tracking)
+- [x] Real-time Driver Tracking
+
+## Real-time Driver Tracking System
+
+The system includes:
+- **Java Backend**: Handles driver location updates via HTTP API
+- **WebSocket Integration**: Real-time updates to dashboard
+- **Interactive Map**: Visualize driver locations with Leaflet
+- **Dashboard UI**: Shows driver locations and status in real-time
 
 Developed for CyberCando.

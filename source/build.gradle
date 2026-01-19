@@ -7,8 +7,11 @@
  */
 
 // Apply the java-library plugin to add support for Java Library
-apply plugin: 'java-library'
-apply plugin: 'application'
+plugins {
+    id 'java-library'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
 
 mainClassName = 'Main'
 
@@ -29,5 +32,9 @@ dependencies {
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
+    options.compilerArgs << '-XDignore.symbol.file'
+    options.compilerArgs << '-Xlint:none'
+    options.fork = true
+    options.forkOptions.executable = 'javac'
 }
 

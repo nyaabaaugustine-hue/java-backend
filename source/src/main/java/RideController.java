@@ -10,7 +10,7 @@ import com.pengrad.telegrambot.model.Update;
  * 
  * @author gusanthiago
  * @author hmmoreira
- *
+ * 
  */
 public class RideController implements Controller {
 
@@ -32,7 +32,7 @@ public class RideController implements Controller {
 		return rideModel.selectRide(ride);	
 	}
 	
-	public List<ProductFare> findAllProducts(Location locationStart, Location locationFinish) {
+	public List<ProductFare> findAllProducts(GeoLocation locationStart, GeoLocation locationFinish) {
 		return this.rideModel.selectAllProductsFares(locationStart, locationFinish);
 	}
 	

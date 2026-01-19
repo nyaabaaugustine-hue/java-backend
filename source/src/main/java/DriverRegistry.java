@@ -1,6 +1,7 @@
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class DriverRegistry {
     private static final DriverRegistry INSTANCE = new DriverRegistry();
@@ -38,6 +39,20 @@ public class DriverRegistry {
             driver.setOnline(isOnline);
         }
     }
+    
+    public synchronized void updateDriverLocation(long id, float latitude, float longitude, int bearing) {
+        Driver driver = getDriverById(id);
+        if (driver != null) {
+            driver.setLocation(new GeoLocation(latitude, longitude));
+            driver.setBearing(bearing);
+        }
+    }
+    
+    public synchronized List<Driver> getActiveDriversWithLocations() {
+        return drivers.stream()
+            .filter(d -> d.isOnline() && d.getLocation() != null)
+            .collect(Collectors.toList());
+    }
 }
 
 class Driver {
@@ -58,6 +73,9 @@ class Driver {
     private double rating;
     private int totalTrips;
     private double earnings;
+    private GeoLocation location;
+    private int bearing; // Direction in degrees
+    private long lastLocationUpdate; // Timestamp of last location update
     
     public Driver(long id, String name, String phone, String email) {
         this.id = id;
@@ -69,6 +87,8 @@ class Driver {
         this.rating = 0.0;
         this.totalTrips = 0;
         this.earnings = 0.0;
+        this.bearing = 0;
+        this.lastLocationUpdate = System.currentTimeMillis();
     }
     
     // Getters and Setters
@@ -107,4 +127,15 @@ class Driver {
     public double getEarnings() { return earnings; }
     public void setEarnings(double earnings) { this.earnings = earnings; }
     public void addEarnings(double amount) { this.earnings += amount; }
+    
+    // Location-related getters and setters
+    public GeoLocation getLocation() { return location; }
+    public void setLocation(GeoLocation location) { 
+        this.location = location;
+        this.lastLocationUpdate = System.currentTimeMillis();
+    }
+    public int getBearing() { return bearing; }
+    public void setBearing(int bearing) { this.bearing = bearing; }
+    public long getLastLocationUpdate() { return lastLocationUpdate; }
+    public void setLastLocationUpdate(long lastLocationUpdate) { this.lastLocationUpdate = lastLocationUpdate; }
 }

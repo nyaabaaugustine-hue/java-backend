@@ -80,18 +80,15 @@ public class RideModel implements Subject {
 	 * @param locationFinish
 	 * @return List<ProductFare>
 	 */
-	public List<ProductFare> selectAllProductsFares(Location locationStart, Location locationFinish) {
+	public List<ProductFare> selectAllProductsFares(GeoLocation locationStart, GeoLocation locationFinish) {
 		
 		List<ProductFare> productsFares = new ArrayList<ProductFare>();
 		try {
 			
-            GeoLocation start = new GeoLocation(locationStart.latitude(), locationStart.longitude());
-            GeoLocation end = new GeoLocation(locationFinish.latitude(), locationFinish.longitude());
-
-			List<TransportProduct> products = transportService.getProducts(start);
+			List<TransportProduct> products = transportService.getProducts(locationStart);
 			
 			for (TransportProduct product : products) {
-				ProductFare productFare = this.buildProductFare(product, start, end, locationStart, locationFinish);
+				ProductFare productFare = this.buildProductFare(product, locationStart, locationFinish, null, null);
 				productsFares.add(productFare);
 				System.out.println(
 						productFare.getProduct().getDisplayName() +
@@ -119,10 +116,15 @@ public class RideModel implements Subject {
 		ProductFare productFare = new ProductFare();
 		try {
 			TransportEstimate rideEstimate = transportService.estimateRide(product, start, end);
-			productFare.setLocationStart(locationStart);
-			productFare.setLocationFinish(locationFinish);
 			productFare.setProduct(product);
 			productFare.setRideEstimate(rideEstimate);
+			// Only set locationStart and locationFinish if they are not null
+			if (locationStart != null) {
+				productFare.setLocationStart(locationStart);
+			}
+			if (locationFinish != null) {
+				productFare.setLocationFinish(locationFinish);
+			}
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

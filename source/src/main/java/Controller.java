@@ -18,5 +18,5 @@ public interface Controller {
 
 	public TransportRide statusForRide(Update update, TransportRide ride);
 
-	public List<ProductFare> findAllProducts(Location locationStart, Location locationFinish);
+	public List<ProductFare> findAllProducts(GeoLocation locationStart, GeoLocation locationFinish);
 }

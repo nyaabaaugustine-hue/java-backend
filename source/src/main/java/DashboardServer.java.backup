@@ -1,0 +1,465 @@
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.util.*;
+import java.util.concurrent.*;
+
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+
+public class DashboardServer {
+    private HttpServer server;
+    private final int port;
+    private AutoDriverRegistrar autoRegistrar;
+    private ScheduledExecutorService scheduler;
+    private Map<String, Object> dashboardState;
+    
+    public DashboardServer(int port) {
+        this(port, null);
+    }
+    
+    public DashboardServer(int port, AutoDriverRegistrar autoRegistrar) {
+        this.port = port;
+        this.autoRegistrar = autoRegistrar;
+        this.dashboardState = new ConcurrentHashMap<>();
+        this.scheduler = Executors.newScheduledThreadPool(2);
+    }
+    
+    public void start() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(port), 0);
+        
+        // Existing endpoints
+        server.createContext("/", new RootHandler());
+        server.createContext("/dashboard", new DashboardHandler());
+        server.createContext("/api/rides", new RidesHandler());
+        server.createContext("/api/drivers", new DriversHandler());
+        server.createContext("/api/drivers/location", new DriverLocationHandler());
+        server.createContext("/api/events", new EventsHandler());
+        server.createContext("/api/audit", new AuditTrailHandler());
+        
+        // New real-time endpoints for driver locations
+        server.createContext("/api/live/drivers", new LiveDriversHandler());
+        server.createContext("/api/driver/register", new DriverRegistrationHandler());
+        
+        // Add missing handlers
+        server.createContext("/", new RootHandler());
+        server.createContext("/dashboard", new DashboardHandler());
+        server.createContext("/api/rides", new RidesHandler());
+        server.createContext("/api/drivers", new DriversHandler());
+        server.createContext("/api/events", new EventsHandler());
+        server.createContext("/api/audit", new AuditTrailHandler());
+        
+        server.setExecutor(null);
+        server.start();
+        
+        // Start periodic updates
+        startPeriodicUpdates();
+        
+        System.out.println("Enhanced Dashboard Server running on http://localhost:" + port);
+    }
+}
+    }
+    
+    private void startPeriodicUpdates() {
+        // Update driver locations every 5 seconds
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                updateDriverLocations();
+            } catch (Exception e) {
+                System.err.println("Error updating driver locations: " + e.getMessage());
+            }
+        }, 0, 5, TimeUnit.SECONDS);
+        
+        // Cleanup inactive drivers every minute
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                cleanupInactiveDrivers();
+            } catch (Exception e) {
+                System.err.println("Error cleaning up drivers: " + e.getMessage());
+            }
+        }, 1, 1, TimeUnit.MINUTES);
+    }
+    
+    private void updateDriverLocations() {
+        // Get latest driver locations from registry and update dashboard state
+        List<Driver> activeDrivers = DriverRegistry.getInstance().getDrivers().stream()
+            .filter(d -> d.isOnline() && d.getLocation() != null)
+            .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
+            
+        dashboardState.put("activeDrivers", activeDrivers);
+        dashboardState.put("lastUpdate", System.currentTimeMillis());
+    }
+    
+    private void cleanupInactiveDrivers() {
+        long cutoffTime = System.currentTimeMillis() - (30 * 60 * 1000); // 30 minutes
+        
+        DriverRegistry.getInstance().getDrivers().forEach(driver -> {
+            if (driver.getLastLocationUpdate() < cutoffTime && driver.isOnline()) {
+                // Mark as offline if no recent location update
+                DriverRegistry.getInstance().updateDriverOnlineStatus(driver.getId(), false);
+                DriverRegistry.getInstance().updateDriverStatus(driver.getId(), "inactive");
+                
+                ActivityLog.getInstance().addEvent(
+                    "System", 
+                    "DRIVER_TIMEOUT", 
+                    "Driver " + driver.getName() + " marked offline due to inactivity"
+                );
+            }
+        });
+    }
+    
+    static class LiveDriversHandler implements HttpHandler {
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("GET".equals(exchange.getRequestMethod())) {
+                handleGetLiveDrivers(exchange);
+            } else {
+                exchange.sendResponseHeaders(405, -1);
+            }
+        }
+        
+        private void handleGetLiveDrivers(HttpExchange exchange) throws IOException {
+            try {
+                List<Driver> activeDrivers = DriverRegistry.getInstance().getActiveDriversWithLocations();
+                
+                StringBuilder sb = new StringBuilder();
+                sb.append("{\"drivers\":[");
+                
+                for (int i = 0; i < activeDrivers.size(); i++) {
+                    Driver d = activeDrivers.get(i);
+                    sb.append("{")
+                      .append("\"id\":").append(d.getId()).append(",")
+                      .append("\"name\":\"").append(escape(d.getName())).append("\",")
+                      .append("\"lat\":").append(d.getLocation().getLatitude()).append(",")
+                      .append("\"lng\":").append(d.getLocation().getLongitude()).append(",")
+                      .append("\"bearing\":").append(d.getBearing()).append(",")
+                      .append("\"vehicleType\":\"").append(escape(d.getVehicleType())).append("\",")
+                      .append("\"vehiclePlate\":\"").append(escape(d.getVehiclePlate())).append("\",")
+                      .append("\"status\":\"").append(escape(d.getStatus())).append("\",")
+                      .append("\"lastUpdate\":").append(d.getLastLocationUpdate())
+                      .append("}");
+                    
+                    if (i < activeDrivers.size() - 1) sb.append(",");
+                }
+                
+                sb.append("],\"timestamp\":").append(System.currentTimeMillis()).append("}");
+                
+                byte[] response = sb.toString().getBytes("UTF-8");
+                exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.sendResponseHeaders(200, response.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response);
+                }
+                
+            } catch (Exception e) {
+                System.err.println("Error getting live drivers: " + e.getMessage());
+                String errorResponse = "{\"error\":\"Internal server error\"}";
+                byte[] response = errorResponse.getBytes("UTF-8");
+                exchange.sendResponseHeaders(500, response.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response);
+                }
+            }
+        }
+    }
+    
+    static class DriverRegistrationHandler implements HttpHandler {
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                handleRegisterDriver(exchange);
+            } else {
+                exchange.sendResponseHeaders(405, -1);
+            }
+        }
+        
+        private void handleRegisterDriver(HttpExchange exchange) throws IOException {
+            try {
+                BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(exchange.getRequestBody(), "UTF-8"));
+                StringBuilder body = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    body.append(line);
+                }
+                
+                String json = body.toString();
+                long telegramId = extractLong(json, "telegramId", 0);
+                String name = extractValue(json, "name");
+                String phone = extractValue(json, "phone");
+                String vehicleType = extractValue(json, "vehicleType");
+                String vehiclePlate = extractValue(json, "vehiclePlate");
+                
+                if (telegramId > 0 && !name.isEmpty()) {
+                    // Register driver
+                    Driver driver = new Driver(telegramId, name, phone, "");
+                    driver.setVehicleType(vehicleType);
+                    driver.setVehiclePlate(vehiclePlate);
+                    driver.setStatus("active");
+                    driver.setOnline(true);
+                    
+                    DriverRegistry.getInstance().addDriver(driver);
+                    
+                    String successResponse = String.format(
+                        "{\"success\":true,\"driverId\":%d,\"message\":\"Driver registered successfully\"}", 
+                        telegramId
+                    );
+                    byte[] response = successResponse.getBytes("UTF-8");
+                    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                    exchange.sendResponseHeaders(200, response.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(response);
+                    }
+                    
+                    ActivityLog.getInstance().addEvent(
+                        "System", 
+                        "DRIVER_MANUAL_REGISTRATION", 
+                        String.format("Manual driver registration: %s (ID: %d)", name, telegramId)
+                    );
+                } else {
+                    String errorResponse = "{\"success\":false,\"message\":\"Missing required fields\"}";
+                    byte[] response = errorResponse.getBytes("UTF-8");
+                    exchange.sendResponseHeaders(400, response.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(response);
+                    }
+                }
+                
+            } catch (Exception e) {
+                System.err.println("Error registering driver: " + e.getMessage());
+                String errorResponse = "{\"success\":false,\"message\":\"Internal server error\"}";
+                byte[] response = errorResponse.getBytes("UTF-8");
+                exchange.sendResponseHeaders(500, response.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response);
+                }
+            }
+        }
+        
+        private long extractLong(String json, String key, long defaultValue) {
+            String pattern = "\"" + key + "\":";
+            int start = json.indexOf(pattern);
+            if (start == -1) return defaultValue;
+            start += pattern.length();
+            int end = json.indexOf(",", start);
+            if (end == -1) end = json.indexOf("}", start);
+            if (end == -1) return defaultValue;
+            try {
+                return Long.parseLong(json.substring(start, end).trim());
+            } catch (NumberFormatException e) {
+                return defaultValue;
+            }
+        }
+        
+        private String extractValue(String json, String key) {
+            String pattern = "\"" + key + "\":\"";
+            int start = json.indexOf(pattern);
+            if (start == -1) return "";
+            start += pattern.length();
+            int end = json.indexOf("\"", start);
+            if (end == -1) return "";
+            return json.substring(start, end);
+        }
+    }
+    
+    private static String escape(String s) {
+        if (s == null) return "";
+        return s.replace("\\","\\\\").replace("\"","\\\"").replace("\n"," ").replace("\r"," ");
+    }
+    
+    public void stop() {
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
+        if (server != null) {
+            server.stop(0);
+        }
+        System.out.println("Dashboard Server stopped");
+    }
+}
+
+// Missing handler classes
+static class RootHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        String response = "<html><body><h1>Dashboard Server Running</h1></body></html>";
+        byte[] responseBytes = response.getBytes("UTF-8");
+        exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, responseBytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBytes);
+        }
+    }
+}
+
+static class DashboardHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        String response = "<html><body><h1>Dashboard</h1><div id='map'>Map would be here</div></body></html>";
+        byte[] responseBytes = response.getBytes("UTF-8");
+        exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, responseBytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBytes);
+        }
+    }
+}
+
+static class RidesHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        String response = "{\"rides\": []}";
+        byte[] responseBytes = response.getBytes("UTF-8");
+        exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, responseBytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBytes);
+        }
+    }
+}
+
+static class DriversHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        List<Driver> drivers = DriverRegistry.getInstance().getDrivers();
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"drivers\":[");
+        
+        for (int i = 0; i < drivers.size(); i++) {
+            Driver d = drivers.get(i);
+            sb.append("{")
+              .append("\"id\":").append(d.getId()).append(",")
+              .append("\"name\":\"").append(escapeHtml(d.getName())).append("\",")
+              .append("\"online\":").append(d.isOnline()).append(",")
+              .append("\"status\":\"").append(escapeHtml(d.getStatus())).append("\"")
+              .append("}");
+            
+            if (i < drivers.size() - 1) sb.append(",");
+        }
+        
+        sb.append("]}");
+        
+        byte[] response = sb.toString().getBytes("UTF-8");
+        exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, response.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(response);
+        }
+    }
+}
+
+static class EventsHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        List<ActivityEntry> events = ActivityLog.getInstance().getEvents();
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"events\":[");
+        
+        for (int i = 0; i < events.size(); i++) {
+            ActivityEntry event = events.get(i);
+            sb.append("{")
+              .append("\"timestamp\":").append(event.getTimestamp()).append(",")
+              .append("\"actor\":\"").append(escapeHtml(event.getActor())).append("\",")
+              .append("\"action\":\"").append(escapeHtml(event.getAction())).append("\",")
+              .append("\"detail\":\"").append(escapeHtml(event.getDetail())).append("\"")
+              .append("}");
+            
+            if (i < events.size() - 1) sb.append(",");
+        }
+        
+        sb.append("]}");
+        
+        byte[] response = sb.toString().getBytes("UTF-8");
+        exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, response.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(response);
+        }
+    }
+}
+
+static class AuditTrailHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        List<AuditEntry> entries = ActivityLog.getInstance().getAuditTrail();
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"audit\":[");
+        
+        for (int i = 0; i < entries.size(); i++) {
+            AuditEntry entry = entries.get(i);
+            sb.append("{")
+              .append("\"timestamp\":").append(entry.getTimestamp()).append(",")
+              .append("\"actor\":\"").append(escapeHtml(entry.getActor())).append("\",")
+              .append("\"action\":\"").append(escapeHtml(entry.getAction())).append("\",")
+              .append("\"detail\":\"").append(escapeHtml(entry.getDetail())).append("\",")
+              .append("\"ipAddress\":\"").append(escapeHtml(entry.getIpAddress())).append("\",")
+              .append("\"userAgent\":\"").append(escapeHtml(entry.getUserAgent())).append("\"")
+              .append("}");
+            
+            if (i < entries.size() - 1) sb.append(",");
+        }
+        
+        sb.append("]}");
+        
+        byte[] response = sb.toString().getBytes("UTF-8");
+        exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, response.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(response);
+        }
+    }
+}
+
+static class DriverLocationHandler implements HttpHandler {
+    public void handle(HttpExchange exchange) throws IOException {
+        if ("GET".equals(exchange.getRequestMethod())) {
+            handleGetDriverLocation(exchange);
+        } else {
+            exchange.sendResponseHeaders(405, -1);
+        }
+    }
+    
+    private void handleGetDriverLocation(HttpExchange exchange) throws IOException {
+        try {
+            List<Driver> activeDrivers = DriverRegistry.getInstance().getActiveDriversWithLocations();
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\"drivers\":[");
+            
+            for (int i = 0; i < activeDrivers.size(); i++) {
+                Driver d = activeDrivers.get(i);
+                sb.append("{")
+                  .append("\"id\":").append(d.getId()).append(",")
+                  .append("\"name\":\"").append(escapeHtml(d.getName())).append("\",")
+                  .append("\"lat\":").append(d.getLocation().getLatitude()).append(",")
+                  .append("\"lng\":").append(d.getLocation().getLongitude()).append(",")
+                  .append("\"vehicleType\":\"").append(escapeHtml(d.getVehicleType())).append("\",")
+                  .append("\"vehiclePlate\":\"").append(escapeHtml(d.getVehiclePlate())).append("\",")
+                  .append("\"status\":\"").append(escapeHtml(d.getStatus())).append("\"")
+                  .append("}");
+                
+                if (i < activeDrivers.size() - 1) sb.append(",");
+            }
+            
+            sb.append("]}");
+            
+            byte[] response = sb.toString().getBytes("UTF-8");
+            exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("Error getting driver locations: " + e.getMessage());
+            String errorResponse = "{\"error\":\"Internal server error\"}";
+            byte[] response = errorResponse.getBytes("UTF-8");
+            exchange.sendResponseHeaders(500, response.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response);
+            }
+        }
+    }
+}

@@ -34,6 +34,9 @@ public class TransportRide {
     public String getFareDisplay() { return fareDisplay; }
     public void setFareDisplay(String fareDisplay) { this.fareDisplay = fareDisplay; }
     
+    public String getDriverPhone() { return driverPhone; }
+    public void setDriverPhone(String driverPhone) { this.driverPhone = driverPhone; }
+    
     public String getPassengerPhone() { return passengerPhone; }
     public void setPassengerPhone(String passengerPhone) { this.passengerPhone = passengerPhone; }
 }
