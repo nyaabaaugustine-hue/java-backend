@@ -20,7 +20,7 @@ RUN chmod +x ./gradlew
 COPY source/src ./src/
 
 # Build the application using shadowJar task to create an executable JAR
-RUN ./gradlew shadowJar -xmx512m
+RUN ./gradlew shadowJar --no-daemon
 
 # Expose the port the app runs on (default is 8088 for dashboard)
 EXPOSE 8088
