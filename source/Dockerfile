@@ -1,5 +1,5 @@
 # Use OpenJDK 11 as the base image
-FROM openjdk:11-jre-slim
+FROM openjdk:11-jdk-slim
 
 # Install Gradle
 RUN apt-get update && apt-get install -y curl unzip && rm -rf /var/lib/apt/lists/*
@@ -26,4 +26,4 @@ RUN ./gradlew shadowJar -xmx512m
 EXPOSE 8088
 
 # Run the application
-CMD ["java", "-cp", "build/libs/driber-all.jar", "Main"]
+CMD ["java", "-jar", "build/libs/driber-all.jar"]
