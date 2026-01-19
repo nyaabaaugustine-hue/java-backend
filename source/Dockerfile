@@ -1,5 +1,5 @@
 # Use OpenJDK 11 as the base image
-FROM eclipse-temurin:11-jre
+FROM eclipse-temurin:11-jdk
 
 # Install Gradle
 RUN apt-get update && apt-get install -y curl unzip && rm -rf /var/lib/apt/lists/*
