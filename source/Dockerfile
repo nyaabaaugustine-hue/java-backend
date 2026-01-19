@@ -8,16 +8,16 @@ RUN apt-get update && apt-get install -y curl unzip && rm -rf /var/lib/apt/lists
 WORKDIR /app
 
 # Copy the Gradle wrapper and build files
-COPY gradle ./gradle/
-COPY gradlew .
-COPY settings.gradle .
-COPY build.gradle .
+COPY source/gradle ./gradle/
+COPY source/gradlew .
+COPY source/settings.gradle .
+COPY source/build.gradle .
 
 # Make gradlew executable
 RUN chmod +x ./gradlew
 
 # Copy source code and resources
-COPY src ./src/
+COPY source/src ./src/
 
 # Build the application using shadowJar task to create an executable JAR
 RUN ./gradlew shadowJar -xmx512m
